@@ -1,0 +1,32 @@
+Title: SparseBlock: Sub-Quadratic Attention Routing for Long-Sequence NLP
+Authors: Elena Vance, Marcus Thorne, David Chen
+Affiliation: Institute for Advanced Intelligence Research
+
+Abstract:
+Standard transformer architectures suffer from quadratic time and memory complexity O(N^2) with respect to input sequence length N. In this paper, we propose SparseBlock, a sub-quadratic attention routing mechanism that restricts attention calculations to dynamic local windows and learned global routing hubs. We evaluate SparseBlock on sequence lengths ranging from 2,048 to 16,384 tokens across language modeling and document summarization. On WikiText-103, SparseBlock achieves a validation perplexity of 18.4, competitive with dense transformers (18.1), while reducing peak memory consumption by 48% and accelerating wall-clock training speed by 2.1x. However, our method requires specialized block-sparse CUDA kernels and exhibits degradation on tasks requiring dense all-to-all cross-sequence reasoning.
+
+1. Introduction & Problem Formulation
+The standard scaled dot-product attention computes Attention(Q, K, V) = softmax(QK^T / sqrt(d))V. As sequence length N increases, the N x N attention matrix becomes a computational bottleneck. While heuristic sparse patterns such as fixed sliding windows reduce complexity to O(N * k), they fail to propagate information across distant paragraphs. The primary research question is: How can we design a dynamically routed sparse attention mechanism that preserves long-range semantic dependencies while maintaining sub-quadratic complexity?
+
+2. Methodology & System Architecture
+SparseBlock introduces two complementary mechanisms:
+(1) Local Sliding Windows: Tokens attend to adjacent tokens within a radius of W = 256 tokens.
+(2) Dynamic Routing Hubs: A lightweight gating projection selects M = 16 global tokens per block that pool and broadcast information across the entire sequence.
+The resulting computational complexity is O(N * (W + M)), which is strictly linear with respect to sequence length.
+
+3. Experimental Setup & Datasets
+We pre-trained a 12-layer transformer on WikiText-103 (103 million tokens) and fine-tuned on the Multi-News document summarization benchmark.
+Preprocessing: Standard Byte-Pair Encoding (BPE) with a 32,000 vocabulary size.
+Baselines: Full Dense Transformer, Longformer, and BigBird.
+Hardware: 8 NVIDIA A100 GPUs (40GB VRAM).
+
+4. Results & Findings
+- Perplexity on WikiText-103: SparseBlock achieved 18.4 perplexity (Dense Transformer: 18.1; Longformer: 19.3).
+- Memory Scaling: At N = 8,192, SparseBlock used 14.2 GB VRAM compared to 32.8 GB for standard transformers (48% reduction).
+- Summarization: On Multi-News, SparseBlock attained a ROUGE-1 of 46.2 and ROUGE-L of 42.8.
+
+5. Limitations
+Our implementation depends on custom block-sparse CUDA operations that are non-trivial to port to TPUs and Apple Silicon. Furthermore, SparseBlock exhibits performance degradation on fine-grained associative recall tasks where all-to-all cross-sequence interactions are strictly required. Finally, evaluations were limited to English-language textual data; multilingual and multimodal robustness remains unexamined.
+
+6. Conclusion & Future Work
+SparseBlock provides a scalable path for processing extended documents in transformers. Future work will investigate automated kernel generation using Triton and extension to autoregressive generation with KV caching.

@@ -1,0 +1,34 @@
+Title: Kernelized Linear Attention: Constant-Memory Recurrent Inference for Transformers
+Authors: Julian K. Morales, Sarah Lin, Aris Thorne
+Affiliation: Department of Computer Science, Cambridge Systems Lab
+
+Abstract:
+Autoregressive generation in large language models requires caching key and value vectors for all previous tokens, leading to linear memory growth O(N) during inference and memory exhaustion at large batch sizes. This paper presents Kernelized Linear Attention (KLA), a method that removes the softmax bottleneck by decomposing attention into positive feature map projections phi(Q) and phi(K). By utilizing the associativity of matrix multiplication, KLA computes inference as a recurrent linear state update in O(1) memory and O(N) training time. On the Long Range Arena (LRA) benchmark, KLA achieves an average score of 59.4, outperforming Linear Transformer (53.1) and Performer (55.8). Despite these gains, KLA suffers from capacity saturation on long associative memory recall tasks and lower perplexity compared to softmax attention on short sequences.
+
+1. Research Problem & Objectives
+The standard attention mechanism requires storing past KV states: S_t = softmax(Q_t K_{<=t}^T) V_{<=t}. This formulation necessitates a growing KV cache during token generation. The objective of this study is to reformulate the attention operator such that the context is summarized into a fixed-size hidden state matrix S in R^{d_k x d_v}, enabling constant inference memory O(1) while maintaining competitive quality on long-sequence modeling.
+
+2. Methodology
+We apply a non-negative feature map phi(x) = elu(x) + 1. The attention output at step t is computed as:
+S_t = S_{t-1} + phi(K_t)^T V_t
+z_t = z_{t-1} + phi(K_t)^T
+Output_t = (phi(Q_t) S_t) / (phi(Q_t) z_t)
+This recurrent formulation requires only the d_k x d_v state matrix S_t to be maintained in GPU SRAM, independent of sequence length.
+
+3. Experimental Setup & Benchmarks
+Datasets:
+- Long Range Arena (LRA): Text, ListOps, Retrieval, Pathfinder, and Image classification tasks (sequence lengths 1,000 to 4,000).
+- Language Modeling: PG-19 books corpus.
+Baselines: Full Softmax Transformer, Performer, Linear Transformer, and CosFormer.
+Evaluation Metrics: LRA Classification Accuracy, Bits-Per-Character (BPC), Peak Inference VRAM, and Token Generation Latency.
+
+4. Results
+- Long Range Arena: KLA achieves an average accuracy of 59.4% across the 5 benchmark tasks.
+- Inference Memory: Inference memory consumption remains strictly constant at 1.8 MB per stream for sequence lengths up to 32,768 tokens, compared to 840 MB for standard KV caching.
+- Latency: Generation speed is 3.4x faster than standard transformers for batch size 64.
+
+5. Limitations
+Linear attention mechanisms suffer from finite state capacity; unlike softmax attention which can retrieve precise tokens via high dot-product spikes, the linear recurrence compresses history into a fixed-size matrix, leading to degradation on synthetic induction head benchmarks and needle-in-a-haystack tasks. Additionally, training stability requires careful gradient clipping due to division by the normalizer z_t.
+
+6. Conclusion & Recommendations
+Kernelized Linear Attention provides extreme efficiency for long-context autoregressive inference. We recommend investigating hybrid architectures that interleave softmax and linear attention layers to combine high precision recall with constant-memory efficiency.

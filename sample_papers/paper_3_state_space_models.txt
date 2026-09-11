@@ -1,0 +1,37 @@
+Title: Selective State Spaces: High-Throughput Hardware-Efficient Sequence Modeling
+Authors: Alexander Croft, Maya Patel, Liam O'Connor
+Affiliation: Neural Computation Group, Zurich Institute of Technology
+
+Abstract:
+State Space Models (SSMs) derived from classical continuous control systems have emerged as a promising alternative to Transformer architectures for deep sequence modeling. However, previous linear time-invariant (LTI) state space models lack input-dependent selection mechanisms, hindering their ability to perform selective information filtering across long contexts. In this paper, we introduce Selective State Spaces (S3M), a sequence model with input-dependent parameterization and a hardware-aware parallel associative scan. S3M scales linearly O(N) with sequence length while outperforming standard transformers on both language modeling perplexity and long-range associative reasoning. On the SlimPajama corpus, a 1.4B parameter S3M model matches the downstream zero-shot performance of a 1.4B LLaMA transformer while demonstrating 5.2x faster inference throughput.
+
+1. Research Problem & Motivation
+Transformers excel at in-context learning due to their dense attention mechanism, but their computational complexity grows quadratically. Conversely, sub-quadratic models (such as Linear Attention and continuous SSMs like S4) struggle with content-based reasoning because their state transition matrices are static and cannot dynamically compress or ignore irrelevant tokens based on input content. The core question addressed is: Can we introduce input-dependent selectivity into continuous-time state spaces without sacrificing parallel training efficiency?
+
+2. Methodology
+S3M introduces time-varying parameter matrices B_t, C_t, and step size Delta_t, making them functions of the current input token x_t:
+Delta_t = softplus(Linear_Delta(x_t))
+B_t = Linear_B(x_t)
+C_t = Linear_C(x_t)
+A_bar = exp(Delta_t * A)
+B_bar = Delta_t * B_t
+h_t = A_bar * h_{t-1} + B_bar * x_t
+y_t = C_t * h_t
+To maintain training speed, we implement a hardware-aware parallel scan algorithm in SRAM, avoiding materializing the expanded hidden states in high-bandwidth memory (HBM).
+
+3. Experimental Setup & Benchmarks
+Training Data: SlimPajama-627B corpus (subsampled to 300B tokens for ablation).
+Evaluation Benchmarks: LAMBADA, PIQA, HellaSwag, ARC-Challenge, and Multi-Query Associative Recall (MQAR).
+Model Configurations: 350M, 790M, and 1.4B parameter architectures.
+Baselines: LLaMA-style dense Transformer, Hyena, and S4.
+
+4. Results & Findings
+- Perplexity: On SlimPajama validation, S3M-1.4B achieved 12.3 perplexity, matching LLaMA-1.4B (12.2).
+- Associative Recall: On MQAR with sequence length 8,192, S3M scored 94.6% accuracy, compared to 95.1% for Dense Transformer and only 28.4% for S4.
+- Inference Throughput: S3M processed 1,820 tokens/second per GPU at batch size 16, representing a 5.2x speedup over dense attention with KV cache.
+
+5. Limitations & Potential Gaps
+Despite strong performance on autoregressive text generation, S3M models exhibit sensitivity to numerical precision during recurrence accumulation, occasionally experiencing gradient instability under FP16 training without BF16 or FP32 master weights. Moreover, the model lacks native bidirectional processing, limiting its direct applicability to masked language modeling and dense cross-attention tasks without architectural modifications. Cross-domain transfer to vision and audio remains largely unexplored in this work.
+
+6. Conclusion & Recommendations
+Selective State Spaces bridge the performance gap between linear-time architectures and dense attention. We recommend evaluating S3M on multimodal pre-training and developing bidirectional hybrid backbones for scientific document parsing and dense retrieval.
