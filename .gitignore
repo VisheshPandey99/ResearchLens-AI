@@ -65,3 +65,6 @@ desktop.ini
 *.db
 *.sqlite
 *.sqlite3
+
+# Temporary backups
+app_backup.py
