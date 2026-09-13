@@ -60,16 +60,16 @@ from src.auth import (
     update_profile_name
 )
 
-# Initialize SQLite database
-init_db()
-
-# Page configuration
+# Page configuration (MUST be the first Streamlit command)
 st.set_page_config(
     page_title="ResearchLens AI - Academic Paper Intelligence",
     page_icon="🔬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Initialize SQLite database
+init_db()
 
 # Custom Styling for Modern Academic Research UI
 st.markdown("""
