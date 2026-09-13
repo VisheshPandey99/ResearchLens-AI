@@ -58,7 +58,10 @@ st.set_page_config(
 )
 
 # Initialize SQLite database
-init_db()
+try:
+    init_db()
+except Exception as e:
+    st.error(f"Database initialization warning: {e}")
 
 # Custom Styling for Modern Academic Research UI
 st.markdown("""
