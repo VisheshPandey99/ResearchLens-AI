@@ -7,9 +7,6 @@ import os
 import re
 import streamlit as st
 
-import importlib
-import src.utils
-importlib.reload(src.utils)
 from src.utils import (
     validate_uploaded_file,
     render_badge,
@@ -19,14 +16,6 @@ from src.utils import (
     clean_html
 )
 from src.document_parser import extract_text
-import src.ai_service
-import src.analyzer
-import src.comparator
-
-# Ensure fresh module resolution in long-running Streamlit worker processes
-importlib.reload(src.ai_service)
-importlib.reload(src.analyzer)
-importlib.reload(src.comparator)
 
 from src.ai_service import (
     analyze_paper,
