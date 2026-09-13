@@ -49,6 +49,7 @@ htmlcov/
 # IDE files
 .vscode/
 .idea/
+.agents/
 *.swp
 *.swo
 
@@ -59,3 +60,8 @@ desktop.ini
 
 # Logs
 *.log
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3

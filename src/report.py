@@ -6,6 +6,7 @@ Generates comprehensive, professionally formatted TXT reports for:
 - Cross-paper research gap detection and matrix
 """
 
+import re
 from datetime import datetime
 from typing import Dict, Any, List
 from src.utils import sanitize_filename
@@ -18,21 +19,33 @@ DISCLAIMER_TEXT = (
 )
 
 
+def strip_html_tags(text: Any) -> str:
+    """Strip HTML formatting tags (e.g. <u>, <b>, <span>) for pure plain-text reports."""
+    if not text:
+        return ""
+    s = str(text)
+    # Remove HTML tags
+    cleaned = re.sub(r"</?[a-zA-Z0-9]+[^>]*>", "", s)
+    return cleaned.strip()
+
+
 def format_list_items(items: Any, prefix: str = "• ") -> str:
-    """Helper to cleanly format list items into indented bullet points."""
+    """Helper to cleanly format list items into indented bullet points without HTML tags."""
     if not items:
         return "  None reported or not clearly stated in the paper."
     if isinstance(items, str):
-        return f"  {prefix}{items}"
+        cleaned = strip_html_tags(items)
+        return f"  {prefix}{cleaned}"
     if isinstance(items, list):
         formatted = []
         for item in items:
             if isinstance(item, dict):
-                formatted.append("  " + prefix + ", ".join(f"{k}: {v}" for k, v in item.items()))
+                cleaned_dict = ", ".join(f"{k}: {strip_html_tags(v)}" for k, v in item.items())
+                formatted.append(f"  {prefix}{cleaned_dict}")
             else:
-                formatted.append(f"  {prefix}{str(item)}")
+                formatted.append(f"  {prefix}{strip_html_tags(str(item))}")
         return "\n".join(formatted)
-    return f"  {str(items)}"
+    return f"  {strip_html_tags(str(items))}"
 
 
 def generate_single_paper_report_txt(
@@ -48,7 +61,7 @@ def generate_single_paper_report_txt(
     orig_words = meta.get("original_word_count", "N/A")
     analyzed_words = meta.get("analyzed_word_count", "N/A")
     truncated = meta.get("was_truncated", False)
-    model = meta.get("model_used", "gpt-4o-mini")
+    model = meta.get("model_used", "gemini-2.5-flash")
 
     confidence = analysis.get("confidence", {})
     overall_conf = confidence.get("overall", "Medium")
@@ -72,11 +85,11 @@ def generate_single_paper_report_txt(
         "",
         "1. EXECUTIVE SUMMARY",
         sep_single,
-        analysis.get("executive_summary", "Not clearly stated in the paper."),
+        strip_html_tags(analysis.get("executive_summary", "Not clearly stated in the paper.")),
         "",
         "2. RESEARCH PROBLEM & BOTTLENECK",
         sep_single,
-        analysis.get("research_problem", "Not clearly stated in the paper."),
+        strip_html_tags(analysis.get("research_problem", "Not clearly stated in the paper.")),
         "",
         "3. OBJECTIVES / RESEARCH QUESTIONS / HYPOTHESES",
         sep_single,
@@ -84,16 +97,16 @@ def generate_single_paper_report_txt(
         "",
         "4. METHODOLOGY & SYSTEM ARCHITECTURE",
         sep_single,
-        analysis.get("methodology", "Not clearly stated in the paper."),
+        strip_html_tags(analysis.get("methodology", "Not clearly stated in the paper.")),
         "",
         "5. DATASET & PREPROCESSING",
         sep_single,
-        f"[Dataset Source & Splits]:\n{analysis.get('dataset', 'Not clearly stated in the paper.')}\n",
-        f"[Preprocessing & Pipeline]:\n{analysis.get('preprocessing', 'Not clearly stated in the paper.')}",
+        f"[Dataset Source & Splits]:\n{strip_html_tags(analysis.get('dataset', 'Not clearly stated in the paper.'))}\n",
+        f"[Preprocessing & Pipeline]:\n{strip_html_tags(analysis.get('preprocessing', 'Not clearly stated in the paper.'))}",
         "",
         "6. EVALUATION PROTOCOL & BASELINES",
         sep_single,
-        analysis.get("evaluation", "Not clearly stated in the paper."),
+        strip_html_tags(analysis.get("evaluation", "Not clearly stated in the paper.")),
         "",
         "7. RESULTS & QUANTITATIVE FINDINGS",
         sep_single,
@@ -101,7 +114,7 @@ def generate_single_paper_report_txt(
         "",
         "8. AUTHORS' CONCLUSION",
         sep_single,
-        analysis.get("conclusion", "Not clearly stated in the paper."),
+        strip_html_tags(analysis.get("conclusion", "Not clearly stated in the paper.")),
         "",
         "9. STRENGTHS & LIMITATIONS",
         sep_single,
@@ -211,7 +224,7 @@ def generate_comparison_report_txt(comparison: Dict[str, Any]) -> str:
         papers_dict = row.get("papers", {})
         lines.append(f"\n[Dimension: {dimension.upper()}]")
         for p_name, val in papers_dict.items():
-            lines.append(f"  • {p_name}:\n      {val}")
+            lines.append(f"  • {p_name}:\n      {strip_html_tags(val)}")
 
     lines.extend([
         "",
@@ -233,7 +246,7 @@ def generate_comparison_report_txt(comparison: Dict[str, Any]) -> str:
         "",
         "6. SYNTHESIZED COMBINED RESEARCH OPPORTUNITY",
         sep_single,
-        comparison.get("combined_research_opportunity", "Not clearly stated."),
+        strip_html_tags(comparison.get("combined_research_opportunity", "Not clearly stated.")),
         "",
         sep_double,
         DISCLAIMER_TEXT,
@@ -263,7 +276,7 @@ def generate_gap_report_txt(gap_data: Dict[str, Any]) -> str:
         "",
         "COLLECTIVE SYNTHESIS SUMMARY",
         sep_single,
-        gap_data.get("synthesis_summary", "Synthesis completed."),
+        strip_html_tags(gap_data.get("synthesis_summary", "Synthesis completed.")),
         "",
         "1. RESEARCH GAP EVALUATION MATRIX",
         sep_single

@@ -27,18 +27,23 @@ PAPER CONTENT:
 {text}
 \"\"\"
 
+CRITICAL STYLING & FORMATTING REQUIREMENTS:
+- Structure all descriptive sections (executive_summary, research_problem, methodology, dataset, preprocessing, evaluation, conclusion) as clear, high-impact bullet points separated by newlines (•).
+- Emphasize key terms: Use <u>underline</u> for thematic lead-ins or category headers (e.g., • <u>Core Architectural Shift:</u> ...), **bold** for primary concepts, models, architectures, algorithms, and numerical metrics (e.g., **Transformer**, **28.4 BLEU**), and *italic* for dataset names, nuance notes, or baseline models (e.g., *WMT 2014*, *recurrent networks*).
+- Make the summary eye-catching, digestible, and scannable rather than dense walls of prose.
+
 Return a valid JSON object matching the exact structure below:
 {{
-  "executive_summary": "A comprehensive 2-3 paragraph synthesis summarizing the core premise, methodology, key findings, and implications.",
-  "research_problem": "The precise problem or bottleneck the paper addresses.",
+  "executive_summary": "• <u>Core Premise:</u> High-impact synthesis bullet point 1 with **bold keywords** and *italic nuances*.\n• <u>Methodological Focus:</u> Bullet point 2 with **key architecture**.\n• <u>Benchmark Finding:</u> Bullet point 3 with **empirical results**.",
+  "research_problem": "• <u>Core Bottleneck:</u> The precise problem or bottleneck addressed with **critical terms** highlighted.\n• <u>Limitation Addressed:</u> Key deficiency in prior work.",
   "objectives": [
-    "Primary research question, hypothesis, or objective 1",
+    "Primary research question, hypothesis, or objective 1 with **bold keywords**",
     "Objective 2"
   ],
-  "methodology": "Detailed description of the technical methodology, architecture, framework, or algorithm used.",
-  "dataset": "Datasets used, source, size, split, domain, or 'Not clearly stated in the paper.'",
-  "preprocessing": "Data cleaning, tokenization, augmentation, or preprocessing pipeline, or 'Not clearly stated in the paper.'",
-  "evaluation": "Evaluation protocol, metrics used (e.g. Accuracy, F1, BLEU, latency), baselines compared against.",
+  "methodology": "• <u>Framework:</u> Technical methodology, architecture, framework, or algorithm used with **bold terms**.\n• <u>Core Mechanism:</u> Mathematical or structural operation highlighted.",
+  "dataset": "• <u>Datasets Used:</u> Datasets used, source, size, split, domain, or 'Not clearly stated in the paper.'",
+  "preprocessing": "• <u>Pipeline:</u> Data cleaning, tokenization, augmentation, or preprocessing pipeline, or 'Not clearly stated in the paper.'",
+  "evaluation": "• <u>Protocol:</u> Evaluation protocol, metrics used (e.g. **Accuracy**, **F1**, **BLEU**, latency), baselines compared against.",
   "results": [
     "Quantitative or qualitative result finding 1 with exact numbers if stated in paper",
     "Result finding 2"

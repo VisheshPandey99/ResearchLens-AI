@@ -1,18 +1,21 @@
 """
-Unit tests for AI Analyzer module (OpenAI client mocking, schema validation, error handling).
+Unit tests for AI Analyzer module (Google Gemini client mocking, schema validation, error handling, Demo Mode).
 """
 
 import json
 import pytest
 from unittest.mock import MagicMock, patch
-from openai import AuthenticationError, RateLimitError, APITimeoutError
 
 from src.analyzer import (
     analyze_paper,
+    generate_recommendations,
+    generate_experiments,
     validate_analysis_schema,
     resolve_api_key,
     MissingAPIKeyError,
-    AnalysisError
+    AnalysisError,
+    DEFAULT_MODEL,
+    DEFAULT_GEMINI_MODEL
 )
 from src.utils import truncate_text_intelligently
 
@@ -96,18 +99,23 @@ class TestIntelligentTruncation:
 
 class TestAnalyzerAPIExecution:
     def test_missing_api_key_raises_error(self):
-        with patch.dict("os.environ", {}, clear=True):
-            with pytest.raises(MissingAPIKeyError):
-                resolve_api_key(None)
+        with patch("streamlit.secrets", {}):
+            with patch.dict("os.environ", {}, clear=True):
+                with pytest.raises(MissingAPIKeyError):
+                    resolve_api_key(None)
+
+    def test_analyze_paper_empty_text_raises_error(self):
+        with pytest.raises(AnalysisError) as exc_info:
+            analyze_paper(text="", api_key="valid-key")
+        assert "No readable text" in str(exc_info.value)
 
     def test_analyze_paper_success_mocked(self):
-        mock_choice = MagicMock()
-        mock_choice.message.content = json.dumps(MOCK_VALID_ANALYSIS)
-        mock_response = MagicMock(choices=[mock_choice])
+        mock_response = MagicMock()
+        mock_response.text = json.dumps(MOCK_VALID_ANALYSIS)
 
-        with patch("src.analyzer.get_openai_client") as mock_get_client:
+        with patch("src.ai_service.get_gemini_client") as mock_get_client:
             mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_response
+            mock_client.models.generate_content.return_value = mock_response
             mock_get_client.return_value = mock_client
 
             result = analyze_paper(
@@ -119,37 +127,59 @@ class TestAnalyzerAPIExecution:
             assert result["research_problem"] == "Quadratic memory scaling in full self-attention."
             assert result["_metadata"]["filename"] == "paper_test.txt"
             assert result["_metadata"]["was_truncated"] is False
+            assert result["_metadata"]["is_demo"] is False
+
+    def test_analyze_paper_demo_mode(self):
+        # Demo mode should succeed without any client mocking or API keys
+        result = analyze_paper(
+            text="Any text",
+            filename="DemoPaper.pdf",
+            demo_mode=True
+        )
+        assert result["_metadata"]["is_demo"] is True
+        assert "Transformer architecture" in result["executive_summary"]
+        assert len(result["objectives"]) >= 2
+        assert result["confidence"]["overall"] == "High"
 
     def test_analyze_paper_handles_auth_error(self):
-        with patch("src.analyzer.get_openai_client") as mock_get_client:
+        with patch("src.ai_service.get_gemini_client") as mock_get_client:
             mock_client = MagicMock()
-            mock_client.chat.completions.create.side_effect = AuthenticationError("Invalid key", response=MagicMock(), body=None)
+            mock_client.models.generate_content.side_effect = Exception("403 API_KEY_INVALID: User not registered")
             mock_get_client.return_value = mock_client
 
             with pytest.raises(AnalysisError) as exc_info:
                 analyze_paper(text="Some text", api_key="bad-key")
-            assert "Invalid OpenAI API key" in str(exc_info.value)
+            assert "Invalid Gemini API key" in str(exc_info.value)
 
     def test_analyze_paper_handles_rate_limit(self):
-        with patch("src.analyzer.get_openai_client") as mock_get_client:
+        with patch("src.ai_service.get_gemini_client") as mock_get_client:
             mock_client = MagicMock()
-            mock_client.chat.completions.create.side_effect = RateLimitError("Rate limit", response=MagicMock(), body=None)
+            mock_client.models.generate_content.side_effect = Exception("429 RESOURCE_EXHAUSTED: Rate limit exceeded")
             mock_get_client.return_value = mock_client
 
             with pytest.raises(AnalysisError) as exc_info:
                 analyze_paper(text="Some text", api_key="test-key")
-            assert "rate limit" in str(exc_info.value).lower()
+            assert "quota/rate limit" in str(exc_info.value).lower()
 
     def test_analyze_paper_handles_malformed_json(self):
-        mock_choice = MagicMock()
-        mock_choice.message.content = "This is not json { [ broken"
-        mock_response = MagicMock(choices=[mock_choice])
+        mock_response = MagicMock()
+        mock_response.text = "This is not json { [ broken"
 
-        with patch("src.analyzer.get_openai_client") as mock_get_client:
+        with patch("src.ai_service.get_gemini_client") as mock_get_client:
             mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_response
+            mock_client.models.generate_content.return_value = mock_response
             mock_get_client.return_value = mock_client
 
             with pytest.raises(AnalysisError) as exc_info:
                 analyze_paper(text="Some text", api_key="test-key")
-            assert "parse structured response" in str(exc_info.value).lower()
+            assert "failed to parse structured json response" in str(exc_info.value).lower()
+
+    def test_generate_recommendations_and_experiments_demo_mode(self):
+        recs = generate_recommendations(MOCK_VALID_ANALYSIS, demo_mode=True)
+        assert isinstance(recs, list)
+        assert len(recs) >= 1
+        assert "recommendation" in recs[0]
+
+        exps = generate_experiments(MOCK_VALID_ANALYSIS, demo_mode=True)
+        assert isinstance(exps, list)
+        assert len(exps) == 1

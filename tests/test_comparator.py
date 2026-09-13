@@ -1,5 +1,5 @@
 """
-Unit tests for Paper Comparator and Research Gap Detection modules.
+Unit tests for Paper Comparator and Research Gap Detection modules (Google Gemini integration & Demo Mode).
 """
 
 import json
@@ -124,13 +124,12 @@ class TestPaperCountValidation:
 
 class TestCompareExecutionMocked:
     def test_compare_2_papers(self):
-        mock_choice = MagicMock()
-        mock_choice.message.content = json.dumps(MOCK_COMPARE_RESPONSE)
-        mock_response = MagicMock(choices=[mock_choice])
+        mock_response = MagicMock()
+        mock_response.text = json.dumps(MOCK_COMPARE_RESPONSE)
 
-        with patch("src.comparator.get_openai_client") as mock_get_client:
+        with patch("src.ai_service.get_gemini_client") as mock_get_client:
             mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_response
+            mock_client.models.generate_content.return_value = mock_response
             mock_get_client.return_value = mock_client
 
             res = compare_papers(MOCK_PAPERS[:2], api_key="test-key")
@@ -138,28 +137,34 @@ class TestCompareExecutionMocked:
             assert len(res["differences"]) == 1
             assert "combined_research_opportunity" in res
             assert len(res["paper_names"]) == 2
+            assert res["is_demo"] is False
+
+    def test_compare_demo_mode(self):
+        res = compare_papers(MOCK_PAPERS[:2], demo_mode=True)
+        assert res["is_demo"] is True
+        assert len(res["comparison_table"]) >= 9
+        assert len(res["similarities"]) >= 1
+        assert "combined_research_opportunity" in res
 
     def test_compare_3_papers(self):
-        mock_choice = MagicMock()
-        mock_choice.message.content = json.dumps(MOCK_COMPARE_RESPONSE)
-        mock_response = MagicMock(choices=[mock_choice])
+        mock_response = MagicMock()
+        mock_response.text = json.dumps(MOCK_COMPARE_RESPONSE)
 
-        with patch("src.comparator.get_openai_client") as mock_get_client:
+        with patch("src.ai_service.get_gemini_client") as mock_get_client:
             mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_response
+            mock_client.models.generate_content.return_value = mock_response
             mock_get_client.return_value = mock_client
 
             res = compare_papers(MOCK_PAPERS[:3], api_key="test-key")
             assert len(res["paper_names"]) == 3
 
     def test_compare_5_papers(self):
-        mock_choice = MagicMock()
-        mock_choice.message.content = json.dumps(MOCK_COMPARE_RESPONSE)
-        mock_response = MagicMock(choices=[mock_choice])
+        mock_response = MagicMock()
+        mock_response.text = json.dumps(MOCK_COMPARE_RESPONSE)
 
-        with patch("src.comparator.get_openai_client") as mock_get_client:
+        with patch("src.ai_service.get_gemini_client") as mock_get_client:
             mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_response
+            mock_client.models.generate_content.return_value = mock_response
             mock_get_client.return_value = mock_client
 
             res = compare_papers(MOCK_PAPERS[:5], api_key="test-key")
@@ -168,18 +173,24 @@ class TestCompareExecutionMocked:
 
 class TestResearchGapsMocked:
     def test_detect_research_gaps(self):
-        mock_choice = MagicMock()
-        mock_choice.message.content = json.dumps(MOCK_GAP_RESPONSE)
-        mock_response = MagicMock(choices=[mock_choice])
+        mock_response = MagicMock()
+        mock_response.text = json.dumps(MOCK_GAP_RESPONSE)
 
-        with patch("src.comparator.get_openai_client") as mock_get_client:
+        with patch("src.ai_service.get_gemini_client") as mock_get_client:
             mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_response
+            mock_client.models.generate_content.return_value = mock_response
             mock_get_client.return_value = mock_client
 
             res = detect_research_gaps(MOCK_PAPERS[:2], api_key="test-key")
             assert len(res["gaps"]) == 2
-            # HIGH priority should be first
             assert res["gaps"][0]["priority"] == "HIGH"
             assert res["gaps"][1]["priority"] == "LOW"
             assert len(res["matrix"]) >= 1
+            assert res["is_demo"] is False
+
+    def test_detect_research_gaps_demo_mode(self):
+        res = detect_research_gaps(MOCK_PAPERS[:2], demo_mode=True)
+        assert res["is_demo"] is True
+        assert len(res["matrix"]) == 7
+        assert len(res["gaps"]) >= 2
+        assert "Potential research gap" in res["synthesis_summary"]
