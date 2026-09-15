@@ -18,7 +18,9 @@ from src.ai_service import (
     MissingAPIKeyError,
     AnalysisError,
     DEFAULT_GEMINI_MODEL,
-    SUPPORTED_GEMINI_MODELS
+    SUPPORTED_GEMINI_MODELS,
+    FALLBACK_FLASH_MODELS,
+    is_temporary_capacity_error
 )
 
 
@@ -65,6 +67,20 @@ class TestErrorMapping:
         assert "timed out or failed" in str(mapped).lower()
 
 
+class TestCapacityErrorDetection:
+    def test_detects_503_and_high_demand(self):
+        assert is_temporary_capacity_error(Exception("503 UNAVAILABLE")) is True
+        assert is_temporary_capacity_error(Exception("This model is currently experiencing high demand.")) is True
+        assert is_temporary_capacity_error(Exception("Server overloaded, please try again shortly")) is True
+
+    def test_rejects_auth_and_quota_errors(self):
+        assert is_temporary_capacity_error(Exception("401 Unauthorized")) is False
+        assert is_temporary_capacity_error(Exception("403 Forbidden: Invalid API Key")) is False
+        assert is_temporary_capacity_error(Exception("API_KEY_INVALID")) is False
+        assert is_temporary_capacity_error(Exception("429 Resource has been exhausted (quota limit reached)")) is False
+        assert is_temporary_capacity_error(Exception("400 Bad Request")) is False
+
+
 class TestCallGeminiJson:
     def test_call_gemini_json_success(self):
         mock_response = MagicMock()
@@ -78,6 +94,94 @@ class TestCallGeminiJson:
             result_str = call_gemini_json("Analyze paper", api_key="dummy-key")
             parsed = json.loads(result_str)
             assert parsed["summary"] == "Test Paper"
+
+    def test_call_gemini_json_fallback_succeeds_on_503(self):
+        mock_503_exc = Exception("503 UNAVAILABLE: This model is currently experiencing high demand.")
+        mock_success_response = MagicMock()
+        mock_success_response.text = '{"summary": "Fallback Paper"}'
+
+        with patch("src.ai_service.get_gemini_client") as mock_get_client, \
+             patch("time.sleep") as mock_sleep:
+            mock_client = MagicMock()
+            mock_client.models.generate_content.side_effect = [
+                mock_503_exc,
+                mock_success_response
+            ]
+            mock_get_client.return_value = mock_client
+
+            result_str = call_gemini_json(
+                "Analyze paper",
+                api_key="dummy-key",
+                model="gemini-3.6-flash",
+                fallback_models=["gemini-3.5-flash"],
+                backoff_seconds=0.01
+            )
+            parsed = json.loads(result_str)
+            assert parsed["summary"] == "Fallback Paper"
+            assert mock_client.models.generate_content.call_count == 2
+            mock_sleep.assert_called_once()
+
+    def test_call_gemini_json_auth_error_fails_immediately_without_fallback(self):
+        auth_exc = Exception("403 Forbidden: Invalid API Key")
+
+        with patch("src.ai_service.get_gemini_client") as mock_get_client, \
+             patch("time.sleep") as mock_sleep:
+            mock_client = MagicMock()
+            mock_client.models.generate_content.side_effect = auth_exc
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(AnalysisError) as exc_info:
+                call_gemini_json(
+                    "Analyze paper",
+                    api_key="dummy-key",
+                    model="gemini-3.6-flash",
+                    fallback_models=["gemini-3.5-flash"]
+                )
+            assert "invalid gemini api key" in str(exc_info.value).lower()
+            assert mock_client.models.generate_content.call_count == 1
+            mock_sleep.assert_not_called()
+
+    def test_call_gemini_json_quota_error_fails_immediately_without_fallback(self):
+        quota_exc = Exception("429 Resource Exhausted: Quota exceeded")
+
+        with patch("src.ai_service.get_gemini_client") as mock_get_client, \
+             patch("time.sleep") as mock_sleep:
+            mock_client = MagicMock()
+            mock_client.models.generate_content.side_effect = quota_exc
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(AnalysisError) as exc_info:
+                call_gemini_json(
+                    "Analyze paper",
+                    api_key="dummy-key",
+                    model="gemini-3.6-flash",
+                    fallback_models=["gemini-3.5-flash"]
+                )
+            assert "quota/rate limit" in str(exc_info.value).lower()
+            assert mock_client.models.generate_content.call_count == 1
+            mock_sleep.assert_not_called()
+
+    def test_call_gemini_json_all_fallbacks_fail_raises_consolidated_error(self):
+        mock_503_exc = Exception("503 UNAVAILABLE: Model overloaded.")
+
+        with patch("src.ai_service.get_gemini_client") as mock_get_client, \
+             patch("time.sleep"):
+            mock_client = MagicMock()
+            mock_client.models.generate_content.side_effect = mock_503_exc
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(AnalysisError) as exc_info:
+                call_gemini_json(
+                    "Analyze paper",
+                    api_key="dummy-key",
+                    model="gemini-3.6-flash",
+                    fallback_models=["gemini-3.5-flash"],
+                    backoff_seconds=0.01
+                )
+            err_msg = str(exc_info.value).lower()
+            assert "temporarily unavailable" in err_msg
+            assert "high demand" in err_msg
+            assert mock_client.models.generate_content.call_count == 2
 
 
 class TestDemoModeGenerators:

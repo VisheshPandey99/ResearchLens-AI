@@ -7,11 +7,15 @@ context window management, and zero-API Demo Mode.
 
 import os
 import json
+import logging
+import time
 from typing import Dict, Any, Optional, List, Tuple
 
 from google import genai
 from google.genai import types
-from google.genai.errors import APIError
+from google.genai.errors import APIError, ServerError, ClientError
+
+logger = logging.getLogger(__name__)
 
 from src.prompts import (
     SYSTEM_ACADEMIC_EVIDENCE_PROMPT,
@@ -27,10 +31,21 @@ from src.utils import truncate_text_intelligently, clean_json_markdown
 DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 DEFAULT_MODEL = DEFAULT_GEMINI_MODEL
 
+# Verified Flash models supported by current Google GenAI API for fallback
+FALLBACK_FLASH_MODELS = [
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3-flash-preview",
+    "gemini-flash-latest"
+]
+
 SUPPORTED_GEMINI_MODELS = [
     "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3-flash-preview",
     "gemini-flash-latest",
-    "gemini-2.5-flash-lite",
     "gemini-2.5-flash",
     "gemini-2.0-flash",
     "gemini-1.5-flash",
@@ -137,38 +152,142 @@ def map_gemini_error(e: Exception, model: str) -> AnalysisError:
     return AnalysisError(f"Gemini service error: {str(e)}")
 
 
+def is_temporary_capacity_error(exc: Exception) -> bool:
+    """
+    Determines if an exception indicates a temporary server capacity or 503 error,
+    which is eligible for multi-model fallback.
+    Explicitly excludes authentication (401/403), invalid API keys,
+    bad requests (400), not found (404), and quota exhaustion (429).
+    """
+    if isinstance(exc, ServerError):
+        if getattr(exc, "code", None) in (503, 500, 502, 504):
+            return True
+
+    err_str = str(exc).lower()
+
+    # Explicitly do NOT treat auth, permission, quota or bad request as temporary capacity errors
+    if any(auth_err in err_str for auth_err in [
+        "401", "403", "unauthenticated", "permission_denied",
+        "invalid api key", "api_key_invalid", "unregistered"
+    ]):
+        return False
+
+    if any(quota_err in err_str for quota_err in [
+        "429", "resource_exhausted", "quota", "rate limit"
+    ]):
+        return False
+
+    if "400" in err_str or "bad request" in err_str:
+        return False
+
+    # Check for temporary availability / capacity signals
+    temporary_signals = [
+        "503",
+        "unavailable",
+        "high demand",
+        "experiencing high demand",
+        "capacity",
+        "overloaded",
+        "temporarily unavailable"
+    ]
+    return any(sig in err_str for sig in temporary_signals)
+
+
 def call_gemini_json(
     prompt: str,
     system_instruction: str = SYSTEM_ACADEMIC_EVIDENCE_PROMPT,
     api_key: Optional[str] = None,
     model: str = DEFAULT_GEMINI_MODEL,
-    temperature: float = 0.2
+    temperature: float = 0.2,
+    fallback_models: Optional[List[str]] = None,
+    backoff_seconds: float = 1.0
 ) -> str:
     """
     Call official Google Gemini API expecting a structured JSON response.
     Applies system instruction, JSON mime-type configuration, and safe error handling.
+    Implements automatic multi-model fallback for temporary 503/capacity errors:
+    - Attempts the user-selected primary model first.
+    - If temporary 503 capacity error occurs, retries with backoff across supported Flash models.
+    - Non-capacity errors (auth, quota, bad requests) fail immediately without fallback.
+    - If all fallback models are exhausted, raises a clear consolidated AnalysisError.
     """
-    try:
-        client = get_gemini_client(api_key)
-        config = types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            response_mime_type="application/json",
-            temperature=temperature
-        )
+    client = get_gemini_client(api_key)
 
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=config
-        )
+    primary_model = model or DEFAULT_GEMINI_MODEL
+    fallbacks = fallback_models if fallback_models is not None else FALLBACK_FLASH_MODELS
+    model_queue: List[str] = [primary_model]
+    for m in fallbacks:
+        if m != primary_model and m not in model_queue:
+            model_queue.append(m)
 
-        raw_text = response.text or "{}"
-        return clean_json_markdown(raw_text)
+    config = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        response_mime_type="application/json",
+        temperature=temperature
+    )
 
-    except MissingAPIKeyError as me:
-        raise me
-    except Exception as e:
-        raise map_gemini_error(e, model)
+    last_error: Optional[Exception] = None
+    attempted_models: List[str] = []
+
+    for idx, current_model in enumerate(model_queue):
+        attempted_models.append(current_model)
+        try:
+            if idx > 0:
+                logger.info(
+                    "Retrying with fallback Gemini model: '%s' (attempt %d/%d)",
+                    current_model, idx + 1, len(model_queue)
+                )
+
+            response = client.models.generate_content(
+                model=current_model,
+                contents=prompt,
+                config=config
+            )
+
+            raw_text = response.text or "{}"
+            if idx > 0:
+                logger.info("Successfully received response using fallback model: '%s'", current_model)
+            return clean_json_markdown(raw_text)
+
+        except MissingAPIKeyError as me:
+            raise me
+        except Exception as e:
+            last_error = e
+
+            # Only fallback for temporary capacity / 503 errors
+            if is_temporary_capacity_error(e):
+                logger.warning(
+                    "Gemini model '%s' encountered temporary capacity error (%s).",
+                    current_model, str(e)[:150]
+                )
+                if idx < len(model_queue) - 1:
+                    next_model = model_queue[idx + 1]
+                    logger.info(
+                        "Applying backoff (%.1fs) before switching to fallback model '%s'...",
+                        backoff_seconds, next_model
+                    )
+                    time.sleep(backoff_seconds)
+                    continue
+                else:
+                    logger.error(
+                        "All candidate Gemini models failed with temporary capacity errors: %s",
+                        attempted_models
+                    )
+                    raise AnalysisError(
+                        "Google Gemini service is temporarily unavailable due to high demand across all "
+                        f"tested models ({', '.join(attempted_models)}). Please try again shortly or switch to Demo Mode."
+                    )
+            else:
+                # Non-temporary errors (auth, quota, bad request, not found) must not be masked
+                logger.error(
+                    "Non-capacity error encountered on model '%s': %s",
+                    current_model, str(e)
+                )
+                raise map_gemini_error(e, current_model)
+
+    if last_error:
+        raise map_gemini_error(last_error, primary_model)
+    raise AnalysisError("No response received from Gemini API.")
 
 
 # =========================================================================
