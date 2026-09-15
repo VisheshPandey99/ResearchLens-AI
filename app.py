@@ -867,7 +867,7 @@ with st.sidebar:
     if not is_demo_mode:
         model_choice = st.selectbox(
             "Gemini Model",
-            options=["gemini-3.6-flash", "gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+            options=SUPPORTED_GEMINI_MODELS,
             index=0,
             help="gemini-3.6-flash delivers high speed and deep academic extraction on Google Gemini."
         )

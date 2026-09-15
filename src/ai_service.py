@@ -159,9 +159,8 @@ def is_temporary_capacity_error(exc: Exception) -> bool:
     Explicitly excludes authentication (401/403), invalid API keys,
     bad requests (400), not found (404), and quota exhaustion (429).
     """
-    if isinstance(exc, ServerError):
-        if getattr(exc, "code", None) in (503, 500, 502, 504):
-            return True
+    if hasattr(exc, "code") and getattr(exc, "code") in (500, 502, 503, 504):
+        return True
 
     err_str = str(exc).lower()
 
@@ -188,7 +187,10 @@ def is_temporary_capacity_error(exc: Exception) -> bool:
         "experiencing high demand",
         "capacity",
         "overloaded",
-        "temporarily unavailable"
+        "temporarily unavailable",
+        "500",
+        "internal server error",
+        "service unavailable"
     ]
     return any(sig in err_str for sig in temporary_signals)
 
